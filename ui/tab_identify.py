@@ -118,9 +118,6 @@ class TabIdentify(QWidget):
         self._frozen_frame = None   # Frame yang di-freeze
         self._auto_timer = QTimer()
         self._auto_timer.timeout.connect(self._trigger_identify)
-        self._resume_timer = QTimer()
-        self._resume_timer.setSingleShot(True)
-        self._resume_timer.timeout.connect(self._resume_live)
         self._build_ui()
 
     def _build_ui(self):
@@ -178,6 +175,17 @@ class TabIdentify(QWidget):
         self.capture_status.setStyleSheet("color:#9ca3af;font-size:11px;")
         self.capture_status.setFixedHeight(18)
         cl.addWidget(self.capture_status)
+
+        self.ok_btn = QPushButton("OK — Lanjut Kamera")
+        self.ok_btn.setFixedHeight(38)
+        self.ok_btn.setVisible(False)
+        self.ok_btn.setStyleSheet(
+            "QPushButton{background:#059669;color:white;border:none;"
+            "border-radius:6px;font-size:13px;font-weight:600;}"
+            "QPushButton:hover{background:#047857;}"
+        )
+        self.ok_btn.clicked.connect(self._resume_live)
+        cl.addWidget(self.ok_btn)
 
         layout.addWidget(cam_panel, 3)
 
@@ -302,6 +310,8 @@ class TabIdentify(QWidget):
         self._frozen_frame = None
         self._last_faces = []
         self._last_labels = []
+        self.ok_btn.setVisible(False)
+        self.capture_status.setText("")
 
     # ---- Identifikasi ----
 
@@ -323,6 +333,7 @@ class TabIdentify(QWidget):
         self.capture_btn.setEnabled(False)
         self.capture_btn.setText("Memproses...")
         self.capture_status.setText("Mendeteksi wajah...")
+        self.ok_btn.setVisible(False)
         # Freeze kamera pada frame ini
         self._frozen = True
         self._frozen_frame = self._frame_buffer.copy()
@@ -355,13 +366,13 @@ class TabIdentify(QWidget):
         if not faces:
             self.capture_status.setText("Tidak ada wajah terdeteksi")
             self._reset_capture_btn()
-            self._resume_timer.start(2000)  # resume live setelah 2 detik
+            self.ok_btn.setVisible(True)
             return
         self.capture_status.setText(f"{len(faces)} wajah terdeteksi")
         # Tampilkan hasil di frame yang di-freeze
         if self._frozen_frame is not None:
             self._show_frame(self._frozen_frame, faces, labels)
-        self._resume_timer.start(3000)  # resume live setelah 3 detik
+        self.ok_btn.setVisible(True)
         for i, (face, label) in enumerate(zip(faces, labels)):
             # label format: "Nama (85%)" atau "Unknown" atau "Error"
             if label in ("Unknown", "?"):
@@ -384,7 +395,7 @@ class TabIdentify(QWidget):
         self._last_labels = []
         self.capture_status.setText(f"Error: {err[:60]}")
         self._reset_capture_btn()
-        self._resume_timer.start(2000)
+        self.ok_btn.setVisible(True)
 
     def _reset_capture_btn(self):
         if self._camera_thread and self._camera_thread.isRunning():
