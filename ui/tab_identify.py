@@ -22,33 +22,41 @@ class CameraThread(QThread):
         self._running = False
 
     def run(self):
-        # Coba DirectShow dulu (lebih stabil di Windows), fallback ke default
-        cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
-        if not cap.isOpened():
+        cap = None
+        try:
             cap = cv2.VideoCapture(self.camera_index)
-        if not cap.isOpened():
-            self.error.emit(f"Kamera index {self.camera_index} tidak ditemukan")
-            return
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        self._running = True
-        fail_count = 0
-        while self._running:
-            ret, frame = cap.read()
-            if ret:
-                fail_count = 0
-                self.frame_ready.emit(frame)
-            else:
-                fail_count += 1
-                if fail_count > 30:
-                    self.error.emit("Kamera terputus")
-                    break
-                self.msleep(30)
-        cap.release()
+            if not cap.isOpened():
+                self.error.emit(f"Kamera index {self.camera_index} tidak ditemukan")
+                return
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self._running = True
+            fail_count = 0
+            while self._running:
+                ret, frame = cap.read()
+                if ret:
+                    fail_count = 0
+                    self.frame_ready.emit(frame)
+                    self.msleep(33)  # ~30fps max, cegah event queue penuh
+                else:
+                    fail_count += 1
+                    if fail_count > 30:
+                        self.error.emit("Kamera terputus")
+                        break
+                    self.msleep(50)
+        except Exception as e:
+            self.error.emit(str(e))
+        finally:
+            if cap is not None:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
 
     def stop(self):
         self._running = False
-        self.wait(2000)
+        if not self.wait(3000):
+            self.terminate()  # paksa hentikan jika masih stuck
 
 
 class TabIdentify(QWidget):
