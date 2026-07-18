@@ -230,7 +230,10 @@ class MainWindow(QMainWindow):
         hl.addWidget(self.logout_btn)
 
         # Tabs
-        self.tab_identify = TabIdentify(self.face_engine, lambda: self.api, self.config)
+        self.tab_identify = TabIdentify(
+            self.face_engine, lambda: self.api, self.config,
+            on_config_change=self._on_camera_state_saved,
+        )
         self.tab_register = TabRegister(self.face_engine, lambda: self.api, self.config)
         self.tab_history = TabHistory(lambda: self.api)
         self.tab_settings = TabSettings(self.config, self._on_settings_saved)
@@ -312,6 +315,10 @@ class MainWindow(QMainWindow):
         self.tab_identify.stop_camera()
         self.logout_btn.hide()
         self._show_login()
+
+    def _on_camera_state_saved(self, new_cfg: dict):
+        self.config.update(new_cfg)
+        save_config(self.config)
 
     def _on_settings_saved(self, new_cfg: dict):
         self.config.update(new_cfg)

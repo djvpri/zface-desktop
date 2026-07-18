@@ -14,6 +14,8 @@ DEFAULT_CONFIG = {
     "camera_index": 0,
     "auto_log": True,
     "detect_interval_ms": 1000,
+    "camera_active": False,
+    "auto_detect": False,
 }
 
 

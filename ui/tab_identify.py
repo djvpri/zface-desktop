@@ -102,11 +102,12 @@ class IdentifyThread(QThread):
 
 
 class TabIdentify(QWidget):
-    def __init__(self, face_engine: FaceEngine, get_api, config: dict):
+    def __init__(self, face_engine: FaceEngine, get_api, config: dict, on_config_change=None):
         super().__init__()
         self.face_engine = face_engine
         self.get_api = get_api
         self.config = config
+        self._on_config_change = on_config_change  # dipanggil saat state kamera berubah
         self._camera_thread = None
         self._identify_thread = None
         self._frame_buffer = None
@@ -199,6 +200,11 @@ class TabIdentify(QWidget):
 
     def on_model_ready(self):
         self._model_ready = True
+        # Restore state sesi sebelumnya
+        if self.config.get("camera_active", False):
+            self._start_camera()
+        if self.config.get("auto_detect", False):
+            self.detect_btn.setChecked(True)
 
     # ---- Kamera ----
 
@@ -212,17 +218,22 @@ class TabIdentify(QWidget):
             self.cam_label.clear()
             self.cam_label.setText("Kamera tidak aktif")
             self.capture_btn.setEnabled(False)
+            self._save_state(camera_active=False)
         else:
-            idx = self.config.get("camera_index", 0)
-            self._camera_thread = CameraThread(idx)
-            self._camera_thread.frame_ready.connect(self._on_frame)
-            self._camera_thread.error.connect(self._on_camera_error)
-            self._camera_thread.start()
-            self.start_btn.setText("Stop Kamera")
-            self.start_btn.setStyleSheet(self._btn("#ef4444"))
-            self.capture_btn.setEnabled(True)
-            if self.detect_btn.isChecked():
-                self._auto_timer.start(self.config.get("detect_interval_ms", 1000))
+            self._start_camera()
+
+    def _start_camera(self):
+        idx = self.config.get("camera_index", 0)
+        self._camera_thread = CameraThread(idx)
+        self._camera_thread.frame_ready.connect(self._on_frame)
+        self._camera_thread.error.connect(self._on_camera_error)
+        self._camera_thread.start()
+        self.start_btn.setText("Stop Kamera")
+        self.start_btn.setStyleSheet(self._btn("#ef4444"))
+        self.capture_btn.setEnabled(True)
+        if self.detect_btn.isChecked():
+            self._auto_timer.start(self.config.get("detect_interval_ms", 1000))
+        self._save_state(camera_active=True)
 
     def _on_camera_error(self, msg: str):
         self._auto_timer.stop()
@@ -246,6 +257,12 @@ class TabIdentify(QWidget):
             self._auto_timer.stop()
             self._last_faces = []
             self._last_labels = []
+        self._save_state(auto_detect=checked)
+
+    def _save_state(self, **kwargs):
+        self.config.update(kwargs)
+        if self._on_config_change:
+            self._on_config_change(self.config)
 
     def _on_frame(self, frame: np.ndarray):
         self._frame_buffer = frame
