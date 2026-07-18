@@ -30,14 +30,21 @@ class FaceEngine:
     def detect(self, frame: np.ndarray) -> List[DetectedFace]:
         if not self.ready or self._model is None:
             return []
-        return [
-            DetectedFace(
-                bbox=tuple(f.bbox.astype(int)),
-                embedding=f.embedding.tolist(),
-                det_score=float(f.det_score),
-            )
-            for f in self._model.get(frame)
-        ]
+        if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
+            return []
+        try:
+            results = []
+            for f in self._model.get(frame):
+                if f.embedding is None or f.bbox is None:
+                    continue
+                results.append(DetectedFace(
+                    bbox=tuple(f.bbox.astype(int)),
+                    embedding=f.embedding.tolist(),
+                    det_score=float(f.det_score),
+                ))
+            return results
+        except Exception:
+            return []
 
     def draw_faces(
         self,

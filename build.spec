@@ -6,6 +6,7 @@ block_cipher = None
 datas = []
 datas += collect_data_files('insightface')
 datas += collect_data_files('onnxruntime', include_py_files=True)
+datas += collect_data_files('scipy')
 
 hidden_imports = [
     # Keyring Windows backend
@@ -28,6 +29,14 @@ hidden_imports = [
     'PyQt6.QtCore',
     'PyQt6.QtGui',
     'PyQt6.QtWidgets',
+    # Scipy (dibutuhkan InsightFace untuk face alignment)
+    'scipy',
+    'scipy.spatial',
+    'scipy.spatial.transform',
+    'scipy.ndimage',
+    'scipy.optimize',
+    'scipy.linalg',
+    'scipy.special',
     # Misc
     'cv2',
     'numpy',
