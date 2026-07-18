@@ -2,7 +2,7 @@ from datetime import datetime
 
 import cv2
 import numpy as np
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, QByteArray
 from PyQt6.QtGui import QColor, QFont, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
@@ -114,8 +114,13 @@ class TabIdentify(QWidget):
         self._last_faces = []
         self._last_labels = []
         self._model_ready = False
+        self._frozen = False        # True saat capture freeze aktif
+        self._frozen_frame = None   # Frame yang di-freeze
         self._auto_timer = QTimer()
         self._auto_timer.timeout.connect(self._trigger_identify)
+        self._resume_timer = QTimer()
+        self._resume_timer.setSingleShot(True)
+        self._resume_timer.timeout.connect(self._resume_live)
         self._build_ui()
 
     def _build_ui(self):
@@ -272,9 +277,14 @@ class TabIdentify(QWidget):
 
     def _on_frame(self, frame: np.ndarray):
         self._frame_buffer = frame
+        if self._frozen:
+            return  # jangan update display saat freeze
+        self._show_frame(frame, self._last_faces, self._last_labels)
+
+    def _show_frame(self, frame, faces=None, labels=None):
         display = (
-            self.face_engine.draw_faces(frame, self._last_faces, self._last_labels)
-            if self._last_faces else frame
+            self.face_engine.draw_faces(frame, faces, labels)
+            if faces else frame
         )
         rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
@@ -286,6 +296,12 @@ class TabIdentify(QWidget):
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
+
+    def _resume_live(self):
+        self._frozen = False
+        self._frozen_frame = None
+        self._last_faces = []
+        self._last_labels = []
 
     # ---- Identifikasi ----
 
@@ -307,7 +323,10 @@ class TabIdentify(QWidget):
         self.capture_btn.setEnabled(False)
         self.capture_btn.setText("Memproses...")
         self.capture_status.setText("Mendeteksi wajah...")
-        self._start_identify(self._frame_buffer.copy(), api)
+        # Freeze kamera pada frame ini
+        self._frozen = True
+        self._frozen_frame = self._frame_buffer.copy()
+        self._start_identify(self._frozen_frame, api)
 
     def _trigger_identify(self):
         """Dipanggil oleh auto-detect timer."""
@@ -336,8 +355,13 @@ class TabIdentify(QWidget):
         if not faces:
             self.capture_status.setText("Tidak ada wajah terdeteksi")
             self._reset_capture_btn()
+            self._resume_timer.start(2000)  # resume live setelah 2 detik
             return
         self.capture_status.setText(f"{len(faces)} wajah terdeteksi")
+        # Tampilkan hasil di frame yang di-freeze
+        if self._frozen_frame is not None:
+            self._show_frame(self._frozen_frame, faces, labels)
+        self._resume_timer.start(3000)  # resume live setelah 3 detik
         for i, (face, label) in enumerate(zip(faces, labels)):
             # label format: "Nama (85%)" atau "Unknown" atau "Error"
             if label in ("Unknown", "?"):
@@ -360,6 +384,7 @@ class TabIdentify(QWidget):
         self._last_labels = []
         self.capture_status.setText(f"Error: {err[:60]}")
         self._reset_capture_btn()
+        self._resume_timer.start(2000)
 
     def _reset_capture_btn(self):
         if self._camera_thread and self._camera_thread.isRunning():
