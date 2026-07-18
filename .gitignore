@@ -1,0 +1,16 @@
+﻿# Build output
+dist/
+build/
+*.spec.bak
+
+# Runtime files
+config.json
+models/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+
+# IDE
+.vscode/
+.idea/
