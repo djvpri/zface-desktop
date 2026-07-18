@@ -13,7 +13,9 @@ if getattr(sys, 'frozen', False):
     sys.stderr = _log_file
 else:
     _base = os.path.dirname(os.path.abspath(__file__))
-os.environ.setdefault('INSIGHTFACE_HOME', os.path.join(_base, 'models'))
+# InsightFace menyimpan ke INSIGHTFACE_HOME/models/<name>/
+# Jadi set ke _base agar hasilnya: <exe_dir>/models/buffalo_l/
+os.environ.setdefault('INSIGHTFACE_HOME', _base)
 
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication
