@@ -43,7 +43,7 @@ excludes = [
     # Tidak dipakai di desktop app (CLIP hanya di server)
     'torch', 'torchvision', 'clip',
     # Tidak perlu
-    'matplotlib', 'scipy', 'pandas', 'IPython',
+    'matplotlib', 'pandas', 'IPython',
     'tkinter', 'wx',
 ]
 
