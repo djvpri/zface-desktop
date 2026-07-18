@@ -1,8 +1,8 @@
-﻿from PyQt6.QtCore import Qt, QThread, pyqtSignal
+﻿from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel,
-    QLineEdit, QMainWindow, QMessageBox, QPushButton,
+    QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton,
     QStatusBar, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -13,6 +13,57 @@ from ui.tab_history import TabHistory
 from ui.tab_identify import TabIdentify
 from ui.tab_register import TabRegister
 from ui.tab_settings import TabSettings
+
+
+class LoadingOverlay(QWidget):
+    """Overlay transparan dengan progress bar indeterminate, tampil saat model loading."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.setStyleSheet("background:rgba(10,14,23,210);")
+
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(16)
+
+        icon = QLabel("🔍")
+        icon.setFont(QFont("Segoe UI", 36))
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon)
+
+        title = QLabel("ZFace Desktop")
+        title.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("color:#60a5fa;")
+        layout.addWidget(title)
+
+        self.status_lbl = QLabel("Memuat model InsightFace...")
+        self.status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_lbl.setStyleSheet("color:#9ca3af;font-size:13px;")
+        layout.addWidget(self.status_lbl)
+
+        self.bar = QProgressBar()
+        self.bar.setFixedSize(320, 10)
+        self.bar.setRange(0, 0)  # indeterminate
+        self.bar.setTextVisible(False)
+        self.bar.setStyleSheet(
+            "QProgressBar{background:#1f2937;border-radius:5px;border:none;}"
+            "QProgressBar::chunk{background:#3b82f6;border-radius:5px;}"
+        )
+        layout.addWidget(self.bar, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        note = QLabel("Pertama kali: unduh model ~280MB, mohon tunggu...")
+        note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        note.setStyleSheet("color:#4b5563;font-size:11px;")
+        layout.addWidget(note)
+
+    def set_status(self, text: str):
+        self.status_lbl.setText(text)
+
+    def resizeEvent(self, event):
+        self.setGeometry(self.parent().rect())
+        super().resizeEvent(event)
 
 
 class ModelLoadThread(QThread):
@@ -209,6 +260,11 @@ class MainWindow(QMainWindow):
         self.statusBar().setStyleSheet("QStatusBar{background:#0f172a;color:#6b7280;font-size:12px;}")
         self.statusBar().showMessage("Siap")
 
+        # Loading overlay (hidden by default, shown saat model loading)
+        self._overlay = LoadingOverlay(central)
+        self._overlay.setGeometry(central.rect())
+        self._overlay.hide()
+
     def _check_auth(self):
         token = get_token()
         if token:
@@ -227,13 +283,24 @@ class MainWindow(QMainWindow):
     def _init_session(self, token: str):
         self.api = ZFaceAPI(self.config["server_url"], token)
         self.logout_btn.show()
+        self._overlay.setGeometry(self.centralWidget().rect())
+        self._overlay.show()
+        self._overlay.raise_()
         self._loader = ModelLoadThread(self.face_engine)
+        self._loader.status.connect(self._overlay.set_status)
         self._loader.status.connect(lambda m: self.model_lbl.setText(m))
         self._loader.done.connect(self._on_model_ready)
-        self._loader.error.connect(lambda e: self.model_lbl.setText(f"Error: {e}"))
+        self._loader.error.connect(self._on_model_error)
         self._loader.start()
 
+    def _on_model_error(self, err: str):
+        self._overlay.set_status(f"Gagal: {err}")
+        self._overlay.bar.setRange(0, 1)  # stop animasi
+        self._overlay.bar.setValue(0)
+        self.model_lbl.setText(f"Error: {err}")
+
     def _on_model_ready(self):
+        self._overlay.hide()
         self.model_lbl.setText("Model siap")
         self.model_lbl.setStyleSheet("color:#34d399;font-size:12px;")
         self.tab_identify.on_model_ready()
@@ -251,6 +318,11 @@ class MainWindow(QMainWindow):
         save_config(self.config)
         if self.api:
             self.api.server_url = self.config["server_url"]
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, '_overlay'):
+            self._overlay.setGeometry(self.centralWidget().rect())
 
     def closeEvent(self, event):
         self.tab_identify.stop_camera()
