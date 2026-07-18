@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -37,7 +37,7 @@ class CameraThread(QThread):
                 if ret:
                     fail_count = 0
                     self.frame_ready.emit(frame)
-                    self.msleep(33)  # ~30fps max, cegah event queue penuh
+                    self.msleep(33)  # ~30fps max
                 else:
                     fail_count += 1
                     if fail_count > 30:
@@ -56,7 +56,49 @@ class CameraThread(QThread):
     def stop(self):
         self._running = False
         if not self.wait(3000):
-            self.terminate()  # paksa hentikan jika masih stuck
+            self.terminate()
+
+
+class IdentifyThread(QThread):
+    """Jalankan deteksi + API call di background agar UI tidak freeze."""
+    done = pyqtSignal(list, list)   # faces, labels
+    error = pyqtSignal(str)
+
+    def __init__(self, face_engine, api, frame, threshold, auto_log):
+        super().__init__()
+        self.face_engine = face_engine
+        self.api = api
+        self.frame = frame
+        self.threshold = threshold
+        self.auto_log = auto_log
+
+    def run(self):
+        try:
+            faces = self.face_engine.detect(self.frame)
+            if not faces:
+                self.done.emit([], [])
+                return
+            labels = []
+            for face in faces:
+                try:
+                    matches = self.api.identify_by_embedding(face.embedding, self.threshold)
+                    if matches:
+                        top = matches[0]
+                        name = top.get("name", "Unknown")
+                        sim = float(top.get("similarity", 0))
+                        labels.append(f"{name} ({sim:.0%})")
+                        if self.auto_log:
+                            try:
+                                self.api.add_log(name, sim)
+                            except Exception:
+                                pass
+                    else:
+                        labels.append("Unknown")
+                except Exception:
+                    labels.append("Error")
+            self.done.emit(faces, labels)
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class TabIdentify(QWidget):
@@ -66,12 +108,13 @@ class TabIdentify(QWidget):
         self.get_api = get_api
         self.config = config
         self._camera_thread = None
+        self._identify_thread = None
         self._frame_buffer = None
         self._last_faces = []
         self._last_labels = []
         self._model_ready = False
-        self._identify_timer = QTimer()
-        self._identify_timer.timeout.connect(self._run_identify)
+        self._auto_timer = QTimer()
+        self._auto_timer.timeout.connect(self._trigger_identify)
         self._build_ui()
 
     def _build_ui(self):
@@ -79,6 +122,7 @@ class TabIdentify(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
+        # --- Panel kamera (kiri) ---
         cam_panel = QFrame()
         cam_panel.setStyleSheet("background:#1f2937;border-radius:10px;")
         cl = QVBoxLayout(cam_panel)
@@ -87,27 +131,45 @@ class TabIdentify(QWidget):
 
         self.cam_label = QLabel("Kamera tidak aktif")
         self.cam_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.cam_label.setMinimumSize(640, 460)
-        self.cam_label.setStyleSheet("background:#111827;border-radius:8px;color:#6b7280;font-size:14px;")
+        self.cam_label.setMinimumSize(640, 420)
+        self.cam_label.setStyleSheet(
+            "background:#111827;border-radius:8px;color:#6b7280;font-size:14px;"
+        )
         cl.addWidget(self.cam_label)
 
-        btns = QHBoxLayout()
+        # Baris 1: Mulai/Stop + Auto Deteksi
+        row1 = QHBoxLayout()
         self.start_btn = QPushButton("Mulai Kamera")
-        self.start_btn.setFixedHeight(38)
+        self.start_btn.setFixedHeight(40)
         self.start_btn.setStyleSheet(self._btn("#3b82f6"))
         self.start_btn.clicked.connect(self._toggle_camera)
-        btns.addWidget(self.start_btn)
+        row1.addWidget(self.start_btn)
 
-        self.detect_btn = QPushButton("Auto Deteksi: ON")
+        self.detect_btn = QPushButton("Auto Deteksi: OFF")
         self.detect_btn.setCheckable(True)
-        self.detect_btn.setChecked(True)
-        self.detect_btn.setFixedHeight(38)
-        self.detect_btn.setStyleSheet(self._btn("#059669"))
+        self.detect_btn.setChecked(False)   # default OFF
+        self.detect_btn.setFixedHeight(40)
+        self.detect_btn.setStyleSheet(self._btn("#374151"))
         self.detect_btn.toggled.connect(self._toggle_detect)
-        btns.addWidget(self.detect_btn)
-        cl.addLayout(btns)
+        row1.addWidget(self.detect_btn)
+        cl.addLayout(row1)
+
+        # Baris 2: Tombol Capture (full width, menonjol)
+        self.capture_btn = QPushButton("Capture & Identifikasi")
+        self.capture_btn.setFixedHeight(44)
+        self.capture_btn.setEnabled(False)
+        self.capture_btn.setStyleSheet(
+            "QPushButton{background:#7c3aed;color:white;border:none;"
+            "border-radius:8px;font-size:14px;font-weight:600;}"
+            "QPushButton:hover{background:#6d28d9;}"
+            "QPushButton:disabled{background:#374151;color:#6b7280;}"
+        )
+        self.capture_btn.clicked.connect(self._capture)
+        cl.addWidget(self.capture_btn)
+
         layout.addWidget(cam_panel, 3)
 
+        # --- Panel hasil (kanan) ---
         right = QFrame()
         right.setFixedWidth(280)
         right.setStyleSheet("background:#1f2937;border-radius:10px;")
@@ -138,15 +200,18 @@ class TabIdentify(QWidget):
     def on_model_ready(self):
         self._model_ready = True
 
+    # ---- Kamera ----
+
     def _toggle_camera(self):
         if self._camera_thread and self._camera_thread.isRunning():
-            self._identify_timer.stop()
+            self._auto_timer.stop()
             self._camera_thread.stop()
             self._camera_thread = None
             self.start_btn.setText("Mulai Kamera")
             self.start_btn.setStyleSheet(self._btn("#3b82f6"))
             self.cam_label.clear()
             self.cam_label.setText("Kamera tidak aktif")
+            self.capture_btn.setEnabled(False)
         else:
             idx = self.config.get("camera_index", 0)
             self._camera_thread = CameraThread(idx)
@@ -155,26 +220,30 @@ class TabIdentify(QWidget):
             self._camera_thread.start()
             self.start_btn.setText("Stop Kamera")
             self.start_btn.setStyleSheet(self._btn("#ef4444"))
+            self.capture_btn.setEnabled(True)
             if self.detect_btn.isChecked():
-                self._identify_timer.start(self.config.get("detect_interval_ms", 1000))
+                self._auto_timer.start(self.config.get("detect_interval_ms", 1000))
 
     def _on_camera_error(self, msg: str):
-        self._identify_timer.stop()
+        self._auto_timer.stop()
         self._camera_thread = None
         self.start_btn.setText("Mulai Kamera")
         self.start_btn.setStyleSheet(self._btn("#3b82f6"))
-        self.cam_label.setText(f"Error kamera: {msg}\n\nCoba ganti Camera Index di tab Setting")
+        self.capture_btn.setEnabled(False)
+        self.cam_label.setText(
+            f"Error kamera: {msg}\n\nCoba ganti Camera Index di tab Setting"
+        )
 
     def _toggle_detect(self, checked: bool):
         if checked:
             self.detect_btn.setText("Auto Deteksi: ON")
             self.detect_btn.setStyleSheet(self._btn("#059669"))
             if self._camera_thread and self._camera_thread.isRunning():
-                self._identify_timer.start(self.config.get("detect_interval_ms", 1000))
+                self._auto_timer.start(self.config.get("detect_interval_ms", 1000))
         else:
             self.detect_btn.setText("Auto Deteksi: OFF")
             self.detect_btn.setStyleSheet(self._btn("#374151"))
-            self._identify_timer.stop()
+            self._auto_timer.stop()
             self._last_faces = []
             self._last_labels = []
 
@@ -195,50 +264,79 @@ class TabIdentify(QWidget):
             )
         )
 
-    def _run_identify(self):
+    # ---- Identifikasi ----
+
+    def _capture(self):
+        """Ambil frame sekarang dan identifikasi secara manual."""
         if not self._model_ready or self._frame_buffer is None:
             return
+        if self._identify_thread and self._identify_thread.isRunning():
+            return  # sedang proses, abaikan klik ganda
         api = self.get_api()
         if not api:
             return
-        frame = self._frame_buffer.copy()
-        faces = self.face_engine.detect(frame)
-        if not faces:
-            self._last_faces = []
-            self._last_labels = []
+        self.capture_btn.setEnabled(False)
+        self.capture_btn.setText("Memproses...")
+        self._start_identify(self._frame_buffer.copy(), api)
+
+    def _trigger_identify(self):
+        """Dipanggil oleh auto-detect timer."""
+        if not self._model_ready or self._frame_buffer is None:
             return
+        if self._identify_thread and self._identify_thread.isRunning():
+            return  # skip tick ini jika masih proses
+        api = self.get_api()
+        if not api:
+            return
+        self._start_identify(self._frame_buffer.copy(), api)
+
+    def _start_identify(self, frame, api):
         threshold = self.config.get("threshold", 0.40)
-        labels = []
-        for face in faces:
-            try:
-                matches = api.identify_by_embedding(face.embedding, threshold)
-                if matches:
-                    top = matches[0]
-                    name = top.get("name", "Unknown")
-                    sim = float(top.get("similarity", 0))
-                    labels.append(f"{name} ({sim:.0%})")
-                    self._add_result(name, sim)
-                    if self.config.get("auto_log", True):
-                        try:
-                            api.add_log(name, sim)
-                        except Exception:
-                            pass
-                else:
-                    labels.append("Unknown")
-            except Exception:
-                labels.append("Error")
+        auto_log = self.config.get("auto_log", True)
+        self._identify_thread = IdentifyThread(
+            self.face_engine, api, frame, threshold, auto_log
+        )
+        self._identify_thread.done.connect(self._on_identify_done)
+        self._identify_thread.error.connect(self._on_identify_error)
+        self._identify_thread.start()
+
+    def _on_identify_done(self, faces, labels):
         self._last_faces = faces
         self._last_labels = labels
+        for i, face in enumerate(faces):
+            label = labels[i] if i < len(labels) else "?"
+            if label not in ("Unknown", "?", "Error"):
+                parts = label.rsplit("(", 1)
+                name = parts[0].strip()
+                sim_str = parts[1].rstrip(")") if len(parts) > 1 else "0%"
+                try:
+                    sim = float(sim_str.strip("%")) / 100
+                except ValueError:
+                    sim = 0.0
+                self._add_result(name, sim)
+        self._reset_capture_btn()
+
+    def _on_identify_error(self, err: str):
+        self._last_faces = []
+        self._last_labels = []
+        self._reset_capture_btn()
+
+    def _reset_capture_btn(self):
+        if self._camera_thread and self._camera_thread.isRunning():
+            self.capture_btn.setEnabled(True)
+        self.capture_btn.setText("Capture & Identifikasi")
 
     def _add_result(self, name: str, sim: float):
-        item = QListWidgetItem(f"{name}\n{sim:.0%}  -  {datetime.now().strftime('%H:%M:%S')}")
+        item = QListWidgetItem(
+            f"{name}\n{sim:.0%}  —  {datetime.now().strftime('%H:%M:%S')}"
+        )
         item.setForeground(QColor("#34d399") if sim >= 0.7 else QColor("#fbbf24"))
         self.result_list.insertItem(0, item)
         while self.result_list.count() > 50:
             self.result_list.takeItem(self.result_list.count() - 1)
 
     def stop_camera(self):
-        self._identify_timer.stop()
+        self._auto_timer.stop()
         if self._camera_thread:
             self._camera_thread.stop()
             self._camera_thread = None
@@ -247,4 +345,5 @@ class TabIdentify(QWidget):
         return (
             f"QPushButton{{background:{color};color:white;border:none;"
             "border-radius:6px;font-size:13px;font-weight:500;}}"
+            f"QPushButton:hover{{background:{color}dd;}}"
         )
