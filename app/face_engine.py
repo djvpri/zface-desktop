@@ -20,8 +20,11 @@ class FaceEngine:
     def load(self, progress_callback=None):
         if progress_callback:
             progress_callback("Memuat model InsightFace buffalo_l...")
+        import os
         from insightface.app import FaceAnalysis
-        self._model = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        # Ambil root dari env var yang di-set main.py (portable path next to exe)
+        model_root = os.environ.get('INSIGHTFACE_HOME', os.path.expanduser('~/.insightface'))
+        self._model = FaceAnalysis(name="buffalo_l", root=model_root, providers=["CPUExecutionProvider"])
         self._model.prepare(ctx_id=0, det_size=(640, 640))
         self.ready = True
         if progress_callback:
