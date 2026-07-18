@@ -14,6 +14,7 @@ from app.face_engine import FaceEngine
 
 class CameraThread(QThread):
     frame_ready = pyqtSignal(np.ndarray)
+    error = pyqtSignal(str)
 
     def __init__(self, camera_index: int = 0):
         super().__init__()
@@ -21,15 +22,27 @@ class CameraThread(QThread):
         self._running = False
 
     def run(self):
-        cap = cv2.VideoCapture(self.camera_index)
+        # Coba DirectShow dulu (lebih stabil di Windows), fallback ke default
+        cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(self.camera_index)
+        if not cap.isOpened():
+            self.error.emit(f"Kamera index {self.camera_index} tidak ditemukan")
+            return
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         self._running = True
+        fail_count = 0
         while self._running:
             ret, frame = cap.read()
             if ret:
+                fail_count = 0
                 self.frame_ready.emit(frame)
             else:
+                fail_count += 1
+                if fail_count > 30:
+                    self.error.emit("Kamera terputus")
+                    break
                 self.msleep(30)
         cap.release()
 
@@ -130,11 +143,19 @@ class TabIdentify(QWidget):
             idx = self.config.get("camera_index", 0)
             self._camera_thread = CameraThread(idx)
             self._camera_thread.frame_ready.connect(self._on_frame)
+            self._camera_thread.error.connect(self._on_camera_error)
             self._camera_thread.start()
             self.start_btn.setText("Stop Kamera")
             self.start_btn.setStyleSheet(self._btn("#ef4444"))
             if self.detect_btn.isChecked():
                 self._identify_timer.start(self.config.get("detect_interval_ms", 1000))
+
+    def _on_camera_error(self, msg: str):
+        self._identify_timer.stop()
+        self._camera_thread = None
+        self.start_btn.setText("Mulai Kamera")
+        self.start_btn.setStyleSheet(self._btn("#3b82f6"))
+        self.cam_label.setText(f"Error kamera: {msg}\n\nCoba ganti Camera Index di tab Setting")
 
     def _toggle_detect(self, checked: bool):
         if checked:
