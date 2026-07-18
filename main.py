@@ -5,6 +5,12 @@ import sys
 # Harus dilakukan SEBELUM import insightface apapun
 if getattr(sys, 'frozen', False):
     _base = os.path.dirname(sys.executable)
+    # PyInstaller windowed mode: stdout/stderr = None, redirect ke log file
+    # agar library yang print ke stdout (insightface, onnxruntime) tidak crash
+    _log_path = os.path.join(_base, 'zface.log')
+    _log_file = open(_log_path, 'a', encoding='utf-8', errors='replace')
+    sys.stdout = _log_file
+    sys.stderr = _log_file
 else:
     _base = os.path.dirname(os.path.abspath(__file__))
 os.environ.setdefault('INSIGHTFACE_HOME', os.path.join(_base, 'models'))
