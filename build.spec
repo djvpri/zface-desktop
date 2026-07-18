@@ -3,10 +3,18 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
+import site, os as _os
+_iface_dir = next(
+    p for p in site.getsitepackages()
+    if _os.path.exists(_os.path.join(p, 'insightface'))
+)
+
 datas = []
 datas += collect_data_files('insightface')
 datas += collect_data_files('onnxruntime', include_py_files=True)
 datas += collect_data_files('scipy')
+# meanshape_68.pkl wajib untuk face alignment (1k3d68 model)
+datas += [(_os.path.join(_iface_dir, 'insightface', 'data', 'objects', 'meanshape_68.pkl'), 'objects')]
 
 hidden_imports = [
     # Keyring Windows backend
