@@ -168,6 +168,12 @@ class TabIdentify(QWidget):
         self.capture_btn.clicked.connect(self._capture)
         cl.addWidget(self.capture_btn)
 
+        self.capture_status = QLabel("")
+        self.capture_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.capture_status.setStyleSheet("color:#9ca3af;font-size:11px;")
+        self.capture_status.setFixedHeight(18)
+        cl.addWidget(self.capture_status)
+
         layout.addWidget(cam_panel, 3)
 
         # --- Panel hasil (kanan) ---
@@ -285,15 +291,22 @@ class TabIdentify(QWidget):
 
     def _capture(self):
         """Ambil frame sekarang dan identifikasi secara manual."""
-        if not self._model_ready or self._frame_buffer is None:
+        if not self._model_ready:
+            self.capture_status.setText("Model belum siap...")
+            return
+        if self._frame_buffer is None:
+            self.capture_status.setText("Kamera belum aktif")
             return
         if self._identify_thread and self._identify_thread.isRunning():
-            return  # sedang proses, abaikan klik ganda
+            self.capture_status.setText("Sedang memproses, tunggu...")
+            return
         api = self.get_api()
         if not api:
+            self.capture_status.setText("Sesi tidak valid, login ulang")
             return
         self.capture_btn.setEnabled(False)
         self.capture_btn.setText("Memproses...")
+        self.capture_status.setText("Mendeteksi wajah...")
         self._start_identify(self._frame_buffer.copy(), api)
 
     def _trigger_identify(self):
@@ -320,22 +333,32 @@ class TabIdentify(QWidget):
     def _on_identify_done(self, faces, labels):
         self._last_faces = faces
         self._last_labels = labels
-        for i, face in enumerate(faces):
-            label = labels[i] if i < len(labels) else "?"
-            if label not in ("Unknown", "?", "Error"):
-                parts = label.rsplit("(", 1)
-                name = parts[0].strip()
-                sim_str = parts[1].rstrip(")") if len(parts) > 1 else "0%"
+        if not faces:
+            self.capture_status.setText("Tidak ada wajah terdeteksi")
+            self._reset_capture_btn()
+            return
+        self.capture_status.setText(f"{len(faces)} wajah terdeteksi")
+        for i, (face, label) in enumerate(zip(faces, labels)):
+            # label format: "Nama (85%)" atau "Unknown" atau "Error"
+            if label in ("Unknown", "?"):
+                self._add_result_raw("Unknown", 0.0, known=False)
+            elif label == "Error":
+                self._add_result_raw("Error (server)", 0.0, known=False)
+            else:
+                # parse "Nama (85%)"
                 try:
-                    sim = float(sim_str.strip("%")) / 100
-                except ValueError:
-                    sim = 0.0
-                self._add_result(name, sim)
+                    parts = label.rsplit("(", 1)
+                    name = parts[0].strip()
+                    sim = float(parts[1].rstrip("%)").strip()) / 100
+                except Exception:
+                    name, sim = label, 0.0
+                self._add_result_raw(name, sim, known=True)
         self._reset_capture_btn()
 
     def _on_identify_error(self, err: str):
         self._last_faces = []
         self._last_labels = []
+        self.capture_status.setText(f"Error: {err[:60]}")
         self._reset_capture_btn()
 
     def _reset_capture_btn(self):
@@ -343,11 +366,16 @@ class TabIdentify(QWidget):
             self.capture_btn.setEnabled(True)
         self.capture_btn.setText("Capture & Identifikasi")
 
-    def _add_result(self, name: str, sim: float):
-        item = QListWidgetItem(
-            f"{name}\n{sim:.0%}  —  {datetime.now().strftime('%H:%M:%S')}"
-        )
-        item.setForeground(QColor("#34d399") if sim >= 0.7 else QColor("#fbbf24"))
+    def _add_result_raw(self, name: str, sim: float, known: bool = True):
+        ts = datetime.now().strftime("%H:%M:%S")
+        text = f"{name}\n{sim:.0%}  —  {ts}" if known and sim > 0 else f"{name}\n{ts}"
+        item = QListWidgetItem(text)
+        if not known:
+            item.setForeground(QColor("#6b7280"))
+        elif sim >= 0.7:
+            item.setForeground(QColor("#34d399"))
+        else:
+            item.setForeground(QColor("#fbbf24"))
         self.result_list.insertItem(0, item)
         while self.result_list.count() > 50:
             self.result_list.takeItem(self.result_list.count() - 1)
