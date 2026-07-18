@@ -6,7 +6,7 @@ Cara pakai:
   python build.py
 
 Output: dist/ZFace-Desktop/
-  Zip folder itu → distribusikan ke tenant.
+  Zip folder itu -> distribusikan ke tenant.
   Model buffalo_l (~280MB) auto-download ke models/ saat pertama kali jalan.
 """
 import os
@@ -57,7 +57,7 @@ def main():
     print("\nCara distribusi:")
     print("  1. Zip seluruh folder dist/ZFace-Desktop/")
     print("  2. Kirim ke tenant")
-    print("  3. Tenant extract → klik ZFace.exe → selesai")
+    print("  3. Tenant extract -> klik ZFace.exe -> selesai")
     print("\nNote: Model buffalo_l (~280MB) akan di-download otomatis")
     print("      ke folder models/ saat pertama kali dijalankan.")
 
