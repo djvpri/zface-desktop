@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QVBoxLayout, QWidget,
 )
 
+from app.camera import open_capture
 from app.face_engine import FaceEngine
 
 
@@ -24,12 +25,13 @@ class CameraThread(QThread):
     def run(self):
         cap = None
         try:
-            cap = cv2.VideoCapture(self.camera_index)
+            cap = open_capture(self.camera_index)
             if not cap.isOpened():
                 self.error.emit(f"Kamera index {self.camera_index} tidak ditemukan")
                 return
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # kurangi latency frame
             self._running = True
             fail_count = 0
             while self._running:

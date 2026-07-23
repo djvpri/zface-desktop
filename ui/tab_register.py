@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QProgressBar, QPushButton, QVBoxLayout, QWidget,
 )
 
+from app.camera import open_capture
 from app.face_engine import FaceEngine
 
 
@@ -152,11 +153,12 @@ class TabRegister(QWidget):
             self.preview.setText("Preview wajah")
         else:
             idx = self.config.get("camera_index", 0)
-            self._cap = cv2.VideoCapture(idx)
+            self._cap = open_capture(idx)
             if not self._cap.isOpened():
                 QMessageBox.warning(self, "Error", "Tidak bisa membuka kamera.")
                 self._cap = None
                 return
+            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             self.cam_btn.setText("Stop Kamera")
             self.cam_btn.setStyleSheet(self._btn("#ef4444"))
             self._preview_timer = QTimer()
