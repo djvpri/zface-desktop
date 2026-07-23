@@ -5,8 +5,8 @@ import numpy as np
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, QByteArray
 from PyQt6.QtGui import QColor, QFont, QImage, QPixmap
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QPushButton, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem,
+    QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
 from app.camera import open_capture
@@ -103,6 +103,24 @@ class IdentifyThread(QThread):
             self.error.emit(str(e))
 
 
+class RegisterEmbeddingThread(QThread):
+    """Daftarkan wajah langsung dari embedding hasil identifikasi (tanpa deteksi ulang)."""
+    done = pyqtSignal(bool, str)
+
+    def __init__(self, api, name, embedding):
+        super().__init__()
+        self.api = api
+        self.name = name
+        self.embedding = embedding
+
+    def run(self):
+        try:
+            self.api.register_by_embedding(self.name, self.embedding)
+            self.done.emit(True, self.name)
+        except Exception as e:
+            self.done.emit(False, str(e))
+
+
 class TabIdentify(QWidget):
     def __init__(self, face_engine: FaceEngine, get_api, config: dict, on_config_change=None):
         super().__init__()
@@ -118,6 +136,8 @@ class TabIdentify(QWidget):
         self._model_ready = False
         self._frozen = False        # True saat capture freeze aktif
         self._frozen_frame = None   # Frame yang di-freeze
+        self._unknown = []          # [(idx, face)] wajah tak dikenali dari capture terakhir
+        self._reg_thread = None
         self._auto_timer = QTimer()
         self._auto_timer.timeout.connect(self._trigger_identify)
         self._build_ui()
@@ -211,6 +231,19 @@ class TabIdentify(QWidget):
             "QListWidget::item:selected{background:#374151;}"
         )
         rl.addWidget(self.result_list)
+
+        # Tombol daftar-cepat untuk wajah Unknown (muncul saat ada yang tak dikenali)
+        self.register_btn = QPushButton("+ Daftarkan Wajah Unknown")
+        self.register_btn.setFixedHeight(38)
+        self.register_btn.setVisible(False)
+        self.register_btn.setStyleSheet(
+            "QPushButton{background:#059669;color:white;border:none;"
+            "border-radius:6px;font-size:13px;font-weight:600;}"
+            "QPushButton:hover{background:#047857;}"
+            "QPushButton:disabled{background:#374151;color:#6b7280;}"
+        )
+        self.register_btn.clicked.connect(self._register_unknown)
+        rl.addWidget(self.register_btn)
 
         clear_btn = QPushButton("Bersihkan")
         clear_btn.setFixedHeight(34)
@@ -312,7 +345,9 @@ class TabIdentify(QWidget):
         self._frozen_frame = None
         self._last_faces = []
         self._last_labels = []
+        self._unknown = []
         self.ok_btn.setVisible(False)
+        self.register_btn.setVisible(False)
         self.capture_status.setText("")
 
     # ---- Identifikasi ----
@@ -336,6 +371,8 @@ class TabIdentify(QWidget):
         self.capture_btn.setText("Memproses...")
         self.capture_status.setText("Mendeteksi wajah...")
         self.ok_btn.setVisible(False)
+        self.register_btn.setVisible(False)
+        self._unknown = []
         # Freeze kamera pada frame ini
         self._frozen = True
         self._frozen_frame = self._frame_buffer.copy()
@@ -365,10 +402,12 @@ class TabIdentify(QWidget):
     def _on_identify_done(self, faces, labels):
         self._last_faces = faces
         self._last_labels = labels
+        self._unknown = []
         if not faces:
             self.capture_status.setText("Tidak ada wajah terdeteksi")
             self._reset_capture_btn()
             self.ok_btn.setVisible(True)
+            self.register_btn.setVisible(False)
             return
         self.capture_status.setText(f"{len(faces)} wajah terdeteksi")
         # Tampilkan hasil di frame yang di-freeze
@@ -378,6 +417,7 @@ class TabIdentify(QWidget):
         for i, (face, label) in enumerate(zip(faces, labels)):
             # label format: "Nama (85%)" atau "Unknown" atau "Error"
             if label in ("Unknown", "?"):
+                self._unknown.append((i, face))
                 self._add_result_raw("Unknown", 0.0, known=False)
             elif label == "Error":
                 self._add_result_raw("Error (server)", 0.0, known=False)
@@ -390,14 +430,71 @@ class TabIdentify(QWidget):
                 except Exception:
                     name, sim = label, 0.0
                 self._add_result_raw(name, sim, known=True)
+        # Tampilkan tombol daftar-cepat kalau ada wajah Unknown
+        if self._unknown:
+            n = len(self._unknown)
+            self.register_btn.setText("+ Daftarkan Wajah Unknown" + (f" ({n})" if n > 1 else ""))
+            self.register_btn.setEnabled(True)
+            self.register_btn.setVisible(True)
+        else:
+            self.register_btn.setVisible(False)
         self._reset_capture_btn()
 
     def _on_identify_error(self, err: str):
         self._last_faces = []
         self._last_labels = []
+        self._unknown = []
+        self.register_btn.setVisible(False)
         self.capture_status.setText(f"Error: {err[:60]}")
         self._reset_capture_btn()
         self.ok_btn.setVisible(True)
+
+    def _register_unknown(self):
+        """Daftarkan wajah Unknown pertama langsung dari embedding hasil capture."""
+        if not self._unknown:
+            self.register_btn.setVisible(False)
+            return
+        if self._reg_thread and self._reg_thread.isRunning():
+            return
+        api = self.get_api()
+        if not api:
+            self.capture_status.setText("Sesi tidak valid, login ulang")
+            return
+        idx, face = self._unknown[0]
+        name, ok = QInputDialog.getText(self, "Daftarkan Wajah", "Nama lengkap:")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        self.register_btn.setEnabled(False)
+        self.register_btn.setText("Mendaftarkan...")
+        self.capture_status.setText(f"Mendaftarkan {name}...")
+        self._reg_thread = RegisterEmbeddingThread(api, name, face.embedding)
+        self._reg_thread.done.connect(
+            lambda ok2, msg, i=idx, n=name: self._on_registered(ok2, msg, i, n)
+        )
+        self._reg_thread.start()
+
+    def _on_registered(self, ok: bool, msg: str, idx: int, name: str):
+        self.register_btn.setEnabled(True)
+        if not ok:
+            self.register_btn.setText("+ Daftarkan Wajah Unknown")
+            self.capture_status.setText(f"Gagal daftar: {msg[:50]}")
+            QMessageBox.warning(self, "Gagal", f"Gagal mendaftarkan wajah:\n{msg}")
+            return
+        self.capture_status.setText(f"✓ {name} berhasil didaftarkan")
+        # Perbarui label di frame freeze: Unknown -> nama baru
+        if 0 <= idx < len(self._last_labels):
+            self._last_labels[idx] = f"{name} (baru)"
+            if self._frozen_frame is not None:
+                self._show_frame(self._frozen_frame, self._last_faces, self._last_labels)
+        self._add_result_raw(f"{name} (baru terdaftar)", 1.0, known=True)
+        # Buang dari daftar unknown; sisakan sisanya (jika ada beberapa wajah)
+        self._unknown = [(i, f) for (i, f) in self._unknown if i != idx]
+        if self._unknown:
+            n = len(self._unknown)
+            self.register_btn.setText("+ Daftarkan Wajah Unknown" + (f" ({n})" if n > 1 else ""))
+        else:
+            self.register_btn.setVisible(False)
 
     def _reset_capture_btn(self):
         if self._camera_thread and self._camera_thread.isRunning():
