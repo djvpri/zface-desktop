@@ -2,15 +2,15 @@
 
 import cv2
 import numpy as np
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QProgressBar, QPushButton, QVBoxLayout, QWidget,
 )
 
-from app.camera import open_capture
 from app.face_engine import FaceEngine
+from ui.tab_identify import CameraThread
 
 
 class RegisterThread(QThread):
@@ -42,8 +42,7 @@ class TabRegister(QWidget):
         self.get_api = get_api
         self.config = config
         self._model_ready = False
-        self._cap = None
-        self._preview_timer = None
+        self._camera_thread = None
         self._current_frame = None
         self._captured_bytes = None
         self._captured_embedding = None
@@ -142,36 +141,37 @@ class TabRegister(QWidget):
         self._model_ready = True
 
     def _toggle_camera(self):
-        if self._cap and self._cap.isOpened():
-            if self._preview_timer:
-                self._preview_timer.stop()
-            self._cap.release()
-            self._cap = None
-            self.cam_btn.setText("Aktifkan Kamera")
-            self.cam_btn.setStyleSheet(self._btn("#3b82f6"))
-            self.preview.clear()
-            self.preview.setText("Preview wajah")
+        if self._camera_thread and self._camera_thread.isRunning():
+            self.stop_camera()
         else:
+            # Buka kamera di thread terpisah agar UI tidak freeze saat inisialisasi.
             idx = self.config.get("camera_index", 0)
-            self._cap = open_capture(idx)
-            if not self._cap.isOpened():
-                QMessageBox.warning(self, "Error", "Tidak bisa membuka kamera.")
-                self._cap = None
-                return
-            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            self._camera_thread = CameraThread(idx)
+            self._camera_thread.frame_ready.connect(self._on_frame)
+            self._camera_thread.error.connect(self._on_camera_error)
+            self._camera_thread.start()
             self.cam_btn.setText("Stop Kamera")
             self.cam_btn.setStyleSheet(self._btn("#ef4444"))
-            self._preview_timer = QTimer()
-            self._preview_timer.timeout.connect(self._update_preview)
-            self._preview_timer.start(33)
 
-    def _update_preview(self):
-        if not self._cap or not self._cap.isOpened():
-            return
-        ret, frame = self._cap.read()
-        if ret:
-            self._current_frame = frame
-            self._show_frame(frame)
+    def stop_camera(self):
+        if self._camera_thread:
+            self._camera_thread.stop()
+            self._camera_thread = None
+        self.cam_btn.setText("Aktifkan Kamera")
+        self.cam_btn.setStyleSheet(self._btn("#3b82f6"))
+        self.preview.clear()
+        self.preview.setText("Preview wajah")
+
+    def _on_frame(self, frame: np.ndarray):
+        self._current_frame = frame
+        self._show_frame(frame)
+
+    def _on_camera_error(self, msg: str):
+        self._camera_thread = None
+        self.cam_btn.setText("Aktifkan Kamera")
+        self.cam_btn.setStyleSheet(self._btn("#3b82f6"))
+        self.preview.setText(f"Error kamera: {msg}\n\nCoba ganti Indeks Kamera di tab Setting")
+        QMessageBox.warning(self, "Error", f"Tidak bisa membuka kamera.\n{msg}")
 
     def _show_frame(self, frame: np.ndarray):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

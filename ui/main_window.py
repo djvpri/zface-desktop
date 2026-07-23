@@ -313,6 +313,7 @@ class MainWindow(QMainWindow):
         clear_token()
         self.api = None
         self.tab_identify.stop_camera()
+        self.tab_register.stop_camera()
         self.logout_btn.hide()
         self._show_login()
 
@@ -333,4 +334,5 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.tab_identify.stop_camera()
+        self.tab_register.stop_camera()
         event.accept()
