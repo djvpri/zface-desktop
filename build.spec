@@ -3,11 +3,11 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
-import site, os as _os
-_iface_dir = next(
-    p for p in site.getsitepackages()
-    if _os.path.exists(_os.path.join(p, 'insightface'))
-)
+import os as _os
+# Ambil folder site-packages dari lokasi modul insightface yang benar-benar
+# ter-import (robust utk venv / user-site; scan getsitepackages() tidak andal).
+import insightface as _iface_mod
+_iface_dir = _os.path.dirname(_os.path.dirname(_iface_mod.__file__))
 
 datas = []
 datas += collect_data_files('insightface')
