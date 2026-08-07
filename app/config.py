@@ -12,6 +12,7 @@ DEFAULT_CONFIG = {
     "zone_url": "https://zone.zomet.my.id",
     "threshold": 0.40,
     "camera_index": 0,
+    "camera_backend": "dshow",
     "auto_log": True,
     "detect_interval_ms": 1000,
     "camera_active": False,

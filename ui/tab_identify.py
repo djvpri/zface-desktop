@@ -16,23 +16,31 @@ from app.face_engine import FaceEngine
 class CameraThread(QThread):
     frame_ready = pyqtSignal(np.ndarray)
     error = pyqtSignal(str)
+    opened = pyqtSignal()  # kamera benar-benar terbuka & frame pertama siap
 
-    def __init__(self, camera_index: int = 0):
+    def __init__(self, camera_index: int = 0, backend: str = "dshow"):
         super().__init__()
         self.camera_index = camera_index
+        self.backend = backend
         self._running = False
 
     def run(self):
         cap = None
         try:
-            cap = open_capture(self.camera_index)
+            cap = open_capture(self.camera_index, self.backend)
             if not cap.isOpened():
                 self.error.emit(f"Kamera index {self.camera_index} tidak ditemukan")
                 return
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # kurangi latency frame
+            # Warm-up: buang beberapa frame awal biar auto-exposure/white-balance
+            # settle sebelum frame pertama ditampilkan (hindari preview gelap/blur).
+            for _ in range(5):
+                if not cap.grab():
+                    break
             self._running = True
+            self.opened.emit()
             fail_count = 0
             while self._running:
                 ret, frame = cap.read()
@@ -278,20 +286,33 @@ class TabIdentify(QWidget):
 
     def _start_camera(self):
         idx = self.config.get("camera_index", 0)
-        self._camera_thread = CameraThread(idx)
+        backend = self.config.get("camera_backend", "dshow")
+        self._camera_thread = CameraThread(idx, backend)
         self._camera_thread.frame_ready.connect(self._on_frame)
         self._camera_thread.error.connect(self._on_camera_error)
+        self._camera_thread.opened.connect(self._on_camera_opened)
         self._camera_thread.start()
+        # Feedback instan: jangan klaim "Stop Kamera" sebelum benar-benar terbuka.
+        self.start_btn.setEnabled(False)
+        self.start_btn.setText("Membuka kamera...")
+        self.start_btn.setStyleSheet(self._btn("#f59e0b"))
+        self.capture_btn.setEnabled(False)
+        self.cam_label.setText("Membuka kamera...")
+        self._save_state(camera_active=True)
+
+    def _on_camera_opened(self):
+        self.start_btn.setEnabled(True)
         self.start_btn.setText("Stop Kamera")
         self.start_btn.setStyleSheet(self._btn("#ef4444"))
         self.capture_btn.setEnabled(True)
+        self.cam_label.setText("")
         if self.detect_btn.isChecked():
             self._auto_timer.start(self.config.get("detect_interval_ms", 1000))
-        self._save_state(camera_active=True)
 
     def _on_camera_error(self, msg: str):
         self._auto_timer.stop()
         self._camera_thread = None
+        self.start_btn.setEnabled(True)
         self.start_btn.setText("Mulai Kamera")
         self.start_btn.setStyleSheet(self._btn("#3b82f6"))
         self.capture_btn.setEnabled(False)

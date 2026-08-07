@@ -146,17 +146,27 @@ class TabRegister(QWidget):
         else:
             # Buka kamera di thread terpisah agar UI tidak freeze saat inisialisasi.
             idx = self.config.get("camera_index", 0)
-            self._camera_thread = CameraThread(idx)
+            backend = self.config.get("camera_backend", "dshow")
+            self._camera_thread = CameraThread(idx, backend)
             self._camera_thread.frame_ready.connect(self._on_frame)
             self._camera_thread.error.connect(self._on_camera_error)
+            self._camera_thread.opened.connect(self._on_camera_opened)
             self._camera_thread.start()
-            self.cam_btn.setText("Stop Kamera")
-            self.cam_btn.setStyleSheet(self._btn("#ef4444"))
+            # Feedback instan sebelum kamera benar-benar terbuka.
+            self.cam_btn.setEnabled(False)
+            self.cam_btn.setText("Membuka kamera...")
+            self.cam_btn.setStyleSheet(self._btn("#f59e0b"))
+
+    def _on_camera_opened(self):
+        self.cam_btn.setEnabled(True)
+        self.cam_btn.setText("Stop Kamera")
+        self.cam_btn.setStyleSheet(self._btn("#ef4444"))
 
     def stop_camera(self):
         if self._camera_thread:
             self._camera_thread.stop()
             self._camera_thread = None
+        self.cam_btn.setEnabled(True)
         self.cam_btn.setText("Aktifkan Kamera")
         self.cam_btn.setStyleSheet(self._btn("#3b82f6"))
         self.preview.clear()
@@ -168,6 +178,7 @@ class TabRegister(QWidget):
 
     def _on_camera_error(self, msg: str):
         self._camera_thread = None
+        self.cam_btn.setEnabled(True)
         self.cam_btn.setText("Aktifkan Kamera")
         self.cam_btn.setStyleSheet(self._btn("#3b82f6"))
         self.preview.setText(f"Error kamera: {msg}\n\nCoba ganti Indeks Kamera di tab Setting")

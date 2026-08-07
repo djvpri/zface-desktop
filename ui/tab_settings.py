@@ -75,6 +75,33 @@ class TabSettings(QWidget):
         cam_row.addStretch()
         cl.addLayout(cam_row)
 
+        bk_row = QHBoxLayout()
+        bk_lbl = QLabel("Backend Kamera:")
+        bk_lbl.setFixedWidth(150)
+        bk_lbl.setStyleSheet("color:#9ca3af;")
+        bk_row.addWidget(bk_lbl)
+        self.backend_combo = QComboBox()
+        self.backend_combo.addItem("DirectShow", "dshow")
+        self.backend_combo.addItem("Media Foundation (MSMF)", "msmf")
+        current = self.config.get("camera_backend", "dshow")
+        self.backend_combo.setCurrentIndex(
+            0 if current == "dshow" else 1
+        )
+        self.backend_combo.setFixedHeight(36)
+        self.backend_combo.setFixedWidth(200)
+        self.backend_combo.setStyleSheet(
+            "QComboBox{background:#111827;color:#e5e7eb;border:1px solid #374151;"
+            "border-radius:6px;padding:0 12px;}"
+        )
+        bk_row.addWidget(self.backend_combo)
+        bk_row.addStretch()
+        cl.addLayout(bk_row)
+
+        hl = QLabel("DirectShow = cepat utk kamera USB. MSMF = coba bila DShow lambat di perangkatmu.")
+        hl.setStyleSheet("color:#4b5563;font-size:11px;")
+        hl.setWordWrap(True)
+        cl.addWidget(hl)
+
         cl.addWidget(self._sep())
         cl.addWidget(self._sec("Deteksi Wajah"))
 
@@ -135,6 +162,7 @@ class TabSettings(QWidget):
             "server_url": self.url_input.text().strip(),
             "zone_url": self.zone_input.text().strip(),
             "camera_index": self.cam_combo.currentIndex(),
+            "camera_backend": self.backend_combo.currentData(),
             "threshold": self.thresh_slider.value() / 100,
             "auto_log": self.auto_log_cb.isChecked(),
         }
