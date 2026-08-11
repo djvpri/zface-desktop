@@ -523,8 +523,12 @@ class TabIdentify(QWidget):
         self.capture_btn.setText("Capture & Identifikasi")
 
     def _add_result_raw(self, name: str, sim: float, known: bool = True):
-        ts = datetime.now().strftime("%H:%M:%S")
-        text = f"{name}\n{sim:.0%}  —  {ts}" if known and sim > 0 else f"{name}\n{ts}"
+        ts = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        text = (
+            f"{name}\n{sim:.0%}  —  ZFace · {ts}"
+            if known and sim > 0
+            else f"{name}\nZFace · {ts}"
+        )
         item = QListWidgetItem(text)
         if not known:
             item.setForeground(QColor("#6b7280"))
