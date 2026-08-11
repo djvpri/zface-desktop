@@ -9,6 +9,8 @@ from PyQt6.QtWidgets import (
 from app.api import ZFaceAPI
 from app.config import clear_token, get_token, load_config, save_config, set_token
 from app.face_engine import FaceEngine
+from app.updater import UpdateThread
+from app.version import VERSION
 from ui.tab_history import TabHistory
 from ui.tab_identify import TabIdentify
 from ui.tab_register import TabRegister
@@ -195,7 +197,7 @@ class MainWindow(QMainWindow):
         self.config = load_config()
         self.api: ZFaceAPI | None = None
         self.face_engine = FaceEngine()
-        self.setWindowTitle("ZFace Desktop")
+        self.setWindowTitle(f"ZFace Desktop v{VERSION}")
         self.setMinimumSize(1024, 700)
         self.setStyleSheet("QMainWindow{background:#111827;}")
         self._build_ui()
@@ -308,6 +310,29 @@ class MainWindow(QMainWindow):
         self.model_lbl.setStyleSheet("color:#34d399;font-size:12px;")
         self.tab_identify.on_model_ready()
         self.tab_register.on_model_ready()
+        self._check_for_updates()
+
+    def _check_for_updates(self):
+        """Cek versi terbaru di background setelah app siap; notif bila ada baru."""
+        if getattr(self, "_updater", None) and self._updater.isRunning():
+            return
+        self._updater = UpdateThread()
+        self._updater.latest_version.connect(self._on_updater_result)
+        self._updater.start()
+
+    def _on_updater_result(self, latest):
+        if not latest:
+            return  # sudah terbaru / offline / error — diam
+        from PyQt6.QtWidgets import QMessageBox
+        url = f"https://github.com/{'djvpri/zface-desktop'}/releases/tag/{latest}"
+        box = QMessageBox(self)
+        box.setWindowTitle("Update Tersedia")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(f"Versi {latest} tersedia.")
+        box.setInformativeText(f"Kamu memakai v{VERSION}.\nUnduh versi terbaru di rilis GitHub:")
+        box.setDetailedText(url)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.exec()
 
     def _logout(self):
         clear_token()
