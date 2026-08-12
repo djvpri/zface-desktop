@@ -2,7 +2,7 @@
 
 Dijaga sinkron dengan tag rilis GitHub (vX.Y.Z).
 """
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 REPO = "djvpri/zface-desktop"
 
 

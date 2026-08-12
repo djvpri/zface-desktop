@@ -350,6 +350,12 @@ class TabIdentify(QWidget):
             self.face_engine.draw_faces(frame, faces, labels)
             if faces else frame
         )
+        # Banner bawah di semua frame kamera (tab identifikasi aktif): ZFace + tanggal + jam.
+        ts = datetime.now().strftime("ZFace \u00b7 %d/%m/%Y %H:%M:%S")
+        (bw, bh), _ = cv2.getTextSize(ts, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
+        fh = display.shape[0]
+        cv2.rectangle(display, (0, fh - 34), (bw + 16, fh - 4), (17, 24, 39), -1)
+        cv2.putText(display, ts, (8, fh - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
         rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
         qt_img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888)
