@@ -15,18 +15,18 @@ class ZFaceAPI:
         return h
 
     def _get(self, path: str, params: dict = None) -> Any:
-        r = requests.get(f"{self.server_url}{path}", headers=self._headers(), params=params, timeout=10)
+        r = requests.get(f"{self.server_url}{path}", headers=self._headers(), params=params, timeout=60)
         r.raise_for_status()
         return r.json()
 
     def _post_json(self, path: str, data: dict) -> Any:
-        r = requests.post(f"{self.server_url}{path}", headers=self._headers(), json=data, timeout=15)
+        r = requests.post(f"{self.server_url}{path}", headers=self._headers(), json=data, timeout=60)
         r.raise_for_status()
         return r.json()
 
     def _post_files(self, path: str, files: dict, data: dict = None) -> Any:
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
-        r = requests.post(f"{self.server_url}{path}", headers=headers, files=files, data=data, timeout=20)
+        r = requests.post(f"{self.server_url}{path}", headers=headers, files=files, data=data, timeout=60)
         r.raise_for_status()
         return r.json()
 
