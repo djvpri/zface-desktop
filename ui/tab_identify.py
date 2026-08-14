@@ -3,10 +3,10 @@ from datetime import datetime
 import cv2
 import numpy as np
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, QByteArray
-from PyQt6.QtGui import QColor, QFont, QImage, QPixmap
+from PyQt6.QtGui import QColor, QFont, QGuiApplication, QImage, QPixmap
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem,
-    QMessageBox, QPushButton, QVBoxLayout, QWidget,
+    QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget,
+    QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
 from app.camera import open_capture
@@ -239,6 +239,21 @@ class TabIdentify(QWidget):
             "QListWidget::item:selected{background:#374151;}"
         )
         rl.addWidget(self.result_list)
+
+        # Baris tombol salin / simpan hasil identifikasi
+        act_row = QHBoxLayout()
+        act_row.setSpacing(6)
+        self.copy_btn = QPushButton("Salin")
+        self.copy_btn.setFixedHeight(34)
+        self.copy_btn.setStyleSheet(self._btn("#3b82f6"))
+        self.copy_btn.clicked.connect(self._copy_selected)
+        act_row.addWidget(self.copy_btn)
+        self.save_btn = QPushButton("Simpan")
+        self.save_btn.setFixedHeight(34)
+        self.save_btn.setStyleSheet(self._btn("#7c3aed"))
+        self.save_btn.clicked.connect(self._save_results)
+        act_row.addWidget(self.save_btn)
+        rl.addLayout(act_row)
 
         # Tombol daftar-cepat untuk wajah Unknown (muncul saat ada yang tak dikenali)
         self.register_btn = QPushButton("+ Daftarkan Wajah Unknown")
@@ -545,6 +560,53 @@ class TabIdentify(QWidget):
         self.result_list.insertItem(0, item)
         while self.result_list.count() > 50:
             self.result_list.takeItem(self.result_list.count() - 1)
+
+    @staticmethod
+    def _format_result(text: str) -> str:
+        """\"Nama\\n85%  —  ZFace · ts\" -> \"Nama (85%) - ts\" berformat bersih."""
+        lines = text.split("\n")
+        name = lines[0].strip()
+        sim = None
+        ts = ""
+        for ln in lines[1:]:
+            if "ZFace ·" in ln:
+                if "—" in ln:
+                    sim_part, _, ts_part = ln.partition("—")
+                    sim = sim_part.strip() or None
+                else:
+                    ts_part = ln
+                ts = ts_part.replace("ZFace ·", "").strip()
+                break
+        out = name
+        if sim:
+            out += f" ({sim})"
+        if ts:
+            out += f" - {ts}"
+        return out
+
+    def _copy_selected(self):
+        idx = self.result_list.currentRow()
+        if idx < 0:
+            QMessageBox.information(self, "Salin", "Pilih salah satu baris hasil dulu.")
+            return
+        text = self._format_result(self.result_list.item(idx).text())
+        QGuiApplication.clipboard().setText(text)
+        self.capture_status.setText(f"✓ Disalin: {text[:40]}")
+
+    def _save_results(self):
+        if self.result_list.count() == 0:
+            QMessageBox.information(self, "Simpan", "Belum ada hasil identifikasi.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Simpan Hasil Identifikasi", "hasil-identifikasi.txt", "Teks (*.txt)"
+        )
+        if not path:
+            return
+        lines = [self._format_result(self.result_list.item(i).text())
+                 for i in range(self.result_list.count())]
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(reversed(lines)) + "\n")
+        self.capture_status.setText(f"✓ Disimpan: {path}")
 
     def stop_camera(self):
         self._auto_timer.stop()
