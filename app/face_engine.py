@@ -60,7 +60,7 @@ class FaceEngine:
         for i, face in enumerate(faces):
             x1, y1, x2, y2 = face.bbox
             label = labels[i] if labels and i < len(labels) else "?"
-            color = (59, 130, 246) if label not in ("Unknown", "?", "Error") else (107, 114, 128)
+            color = (59, 130, 246) if not (label == "Error" or label == "?" or label.startswith("Unknown")) else (107, 114, 128)
             cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
             tw_x1 = min(x1, max(w - tw - 10, 0))   # jaga label tetap dalam frame horizontal

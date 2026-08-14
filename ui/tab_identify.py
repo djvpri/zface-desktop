@@ -452,15 +452,16 @@ class TabIdentify(QWidget):
             self.register_btn.setVisible(False)
             return
         self.capture_status.setText(f"{len(faces)} wajah terdeteksi")
-        # Tampilkan hasil di frame yang di-freeze
-        if self._frozen_frame is not None:
-            self._show_frame(self._frozen_frame, faces, labels)
         self.ok_btn.setVisible(True)
+        unknown_no = 0
         for i, (face, label) in enumerate(zip(faces, labels)):
             # label format: "Nama (85%)" atau "Unknown" atau "Error"
             if label in ("Unknown", "?"):
+                unknown_no += 1
                 self._unknown.append((i, face))
-                self._add_result_raw("Unknown", 0.0, known=False)
+                lab = f"Unknown {unknown_no}"      # mis. Unknown 1, Unknown 2, ...
+                self._last_labels[i] = lab          # overlay bernomor juga
+                self._add_result_raw(lab, 0.0, known=False)
             elif label == "Error":
                 self._add_result_raw("Error (server)", 0.0, known=False)
             else:
@@ -480,6 +481,9 @@ class TabIdentify(QWidget):
             self.register_btn.setVisible(True)
         else:
             self.register_btn.setVisible(False)
+        # Tampilkan hasil di frame yang di-freeze, label unknown sudah bernomor
+        if self._frozen_frame is not None:
+            self._show_frame(self._frozen_frame, self._last_faces, self._last_labels)
         self._reset_capture_btn()
 
     def _on_identify_error(self, err: str):
